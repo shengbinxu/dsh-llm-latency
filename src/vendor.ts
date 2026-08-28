@@ -57,8 +57,12 @@ export function createVendorResolver(ctx: Context): VendorResolver {
     }
     const llm = ctx.get('llm') as { listProviders(): readonly { id: string; name: string }[] } | undefined
     if (llm !== undefined) {
-      for (const p of llm.listProviders()) {
-        if (result[p.id] === undefined) result[p.id] = p.id
+      try {
+        for (const p of llm.listProviders()) {
+          if (result[p.id] === undefined) result[p.id] = p.id
+        }
+      } catch {
+        // provider enumeration is best-effort; fall back to provider ids
       }
     }
     return result
