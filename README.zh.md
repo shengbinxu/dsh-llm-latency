@@ -35,13 +35,13 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add github:<你>/dsh-llm-latency
+dsh plugin --profile web add github:shengbinxu/dsh-llm-latency
 ```
 
 安装后重启 profile。插件在 `dsh-base` 之后生效（依赖 `llm` 服务），拦截 `llm/stream`，并把仪表盘挂在：
 
 ```
-http://127.0.0.1:<端口>/llm-latency/
+http://127.0.0.1:3080/llm-latency/
 ```
 
 ## 使用

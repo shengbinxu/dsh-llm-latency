@@ -48,14 +48,14 @@ rates, cache-hit rate, and median significance.
 ## Install
 
 ```sh
-dsh plugin --profile web add github:<you>/dsh-llm-latency
+dsh plugin --profile web add github:shengbinxu/dsh-llm-latency
 ```
 
 Then restart the profile. The plugin applies after `dsh-base` (it needs the
 `llm` service), intercepts `llm/stream`, and serves the dashboard at:
 
 ```
-http://127.0.0.1:<port>/llm-latency/
+http://127.0.0.1:3080/llm-latency/
 ```
 
 ## Usage
