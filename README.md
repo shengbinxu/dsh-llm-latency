@@ -26,6 +26,25 @@ and whose cache hits better — for the same model, over the same period?"**
 
 See [DESIGN.md](DESIGN.md) for the data model and comparison methodology.
 
+## Screenshots
+
+**Overview** — rank every vendor·model row over a time window.
+
+![Overview](docs/screenshots/overview.png)
+
+**Time-window** — the same model across vendors, with P50/P90/P95/P99, failure
+rates, cache-hit rate, and median significance.
+
+![Time-window comparison](docs/screenshots/time-window.png)
+
+**Session** — compare two single-model sessions side by side.
+
+![Session comparison](docs/screenshots/session.png)
+
+**Request log** — search and filter every model call.
+
+![Request log](docs/screenshots/request-log.png)
+
 ## Install
 
 ```sh

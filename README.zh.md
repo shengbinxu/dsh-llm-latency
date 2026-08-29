@@ -14,6 +14,24 @@
 
 数据模型与对比方法论见 [DESIGN.md](DESIGN.md)。
 
+## 截图
+
+**总览**——任意时段内按厂商 · 模型排行。
+
+![总览](docs/screenshots/overview.png)
+
+**时段对比**——同一模型跨厂商，含 P50/P90/P95/P99、失败率、缓存命中率与显著性。
+
+![时段对比](docs/screenshots/time-window.png)
+
+**会话对比**——两个单模型会话并排对比。
+
+![会话对比](docs/screenshots/session.png)
+
+**请求日志**——搜索/过滤每次模型调用。
+
+![请求日志](docs/screenshots/request-log.png)
+
 ## 安装
 
 ```sh
