@@ -2,11 +2,17 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-面向 DeepSeek Harness 的「按厂商 / 模型」LLM 延迟统计与跨厂商对拍插件。它用数据回答一个问题：**到底是某家平台真的慢，还是只是上下文太长？**
+面向 DeepSeek Harness 的「按厂商 / 模型 / 会话」LLM 延迟与缓存命中统计插件。用数据回答一个问题：**同一模型、同一时段，到底是哪家厂商更快、缓存命中率更高？**
 
-- **被动埋点**——每一次真实模型调用都被测量（首 token、首个可见文本、端到端、吐字速率、缓存命中率），并按 `厂商|provider|模型` 聚合。
-- **抗缓存主动对拍**——复用最近一次**真实长上下文请求**，并发发给多个厂商路由，做到同输入、同时刻对比。
-- **仪表盘 + 工具**——自带一个自包含 HTML 仪表盘，加上 `latency_report` / `latency_benchmark` 两个模型工具，还支持导出 CSV 作为证据。
+- **被动埋点**——每一次真实模型调用都被测量（首 token、端到端、吐字速率、缓存命中率），并按失败类型（429 / 超时 / 5xx / 中止）分类。
+- **三类对比**：
+  1. **总览**——任意时段内按厂商 · 模型排行。
+  2. **时段对比**——同一模型跨厂商，在任选时间窗（如「今天 10:00–10:30」）输出 P50/P90/P95/P99、失败率、缓存命中率、样本量与显著性。
+  3. **会话对比**——两个会话发相同提示词、各锁一个厂商的同一模型，跑完后对比整段；前提是会话内未切换模型。
+- **仪表盘 + 工具**——自包含 HTML 仪表盘（总览 / 时段对比 / 会话对比 / 请求日志 四个视图），加上 `latency_report` 模型工具，支持导出 CSV。
+- **请求日志**——每次模型调用落一条记录（时间、厂商、模型、会话、请求 ID、key、首 token、端到端、输入输出 token、缓存命中率、状态），可在网页上搜索/过滤。
+
+数据模型与对比方法论见 [DESIGN.md](DESIGN.md)。
 
 ## 安装
 
@@ -22,23 +28,25 @@ http://127.0.0.1:<端口>/llm-latency/
 
 ## 使用
 
-- **仪表盘**：打开 `/llm-latency/`，勾选两个以上目标，点「开始对拍」。被动统计每 5 秒刷新一次；「导出 CSV」下载报表。
-- **模型工具**：直接对 agent 说「帮我看看各厂商延迟对比」（`latency_report`），或「对比一下这几个厂商」（`latency_benchmark`）。
+- **仪表盘**——在 总览 / 时段对比 / 会话对比 / 请求日志 四个视图间切换：
+  - 时段对比：选一个模型、选一个时段，跨厂商并排对比。
+  - 会话对比：勾选两个「会话内单模型」的会话进行对比。
+  - 请求日志：按请求 ID、厂商、模型、会话、key、状态搜索/过滤每次调用。
+- **模型工具**——对 agent 说「帮我看看各厂商延迟对比」（`latency_report`），支持 `model`、`vendors`、`from`/`to`、`sessionIds` 参数。
 
 ## 数据存储位置
 
-聚合结果持久化在 `$DSH_HOME/llm-latency/stats.json`（默认 `~/.dsh/llm-latency/stats.json`）。删除该文件即可清零。
+聚合结果持久化在 `$DSH_HOME/llm-latency/stats.json`（默认 `~/.dsh/llm-latency/stats.json`）。删除该文件即可清零。请求日志以追加方式存于 `$DSH_HOME/llm-latency/requests.jsonl`。
 
-## 抗缓存方法论
+## 指标定义
 
-原样重放同一份上下文会被三种缓存污染：精确匹配缓存、前缀缓存（DeepSeek 官方、Anthropic 系都有）、以及冷/热不对称。插件用以下手段对抗：
+- **TTFT**（主）：到首个内容 chunk 的毫秒数；**e2e**：到流结束；**tok/s**：解码吞吐。
+- **缓存命中率**：`cacheRead / (input + cacheRead + cacheWrite)`；**缓存写入率**：`cacheWrite / 同分母`。
+- **失败分解**：429（限流）、超时、5xx、中止、其他，各自占尝试数比例。重试是独立 `llm/stream`，429 按「尝试」计。
 
-1. **每轮换新尾部**——每轮追加一条唯一的 user 消息，打破精确匹配缓存，同时保留长上下文前缀的工作量。
-2. **冷/热分离**——某份上下文的首次出现标为 `cold`，重复出现标为 `warm`，报表分开呈现。
-3. **观测缓存而非猜测**——`usage.cacheReadTokens` / `cacheWriteTokens` 会逐样本记录，缓存命中率变成可见的一列，而不是隐藏的干扰。
-4. **可选 `cacheBust`**——向 system 注入随机前缀，彻底打破前缀缓存，只测「冷算力」（会明确标注，因为这会抹掉厂商的真实优化）。
+## 对比方法论
 
-公平性主指标是**首 token 延迟（TTFT）**——由 prefill 主导、与输出长度无关。端到端延迟按 tokens/s 归一化。
+同模型跨厂商对比总是把双方切到**同一时段**。分位数来自合并直方图；中位数 95% bootstrap 置信区间在窗口样本足够（`minSamplesForComparison`）时来自 recent 样本环。两厂商中位数 CI 不重叠 → 差异显著。样本不足、样本量悬殊会显式告警。
 
 ## 配置
 
@@ -46,14 +54,18 @@ http://127.0.0.1:<端口>/llm-latency/
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `snapshotLimit` | `8` | 保留用于对拍的不同真实请求快照数 |
-| `snapshotMaxBytes` | `4000000` | 单个快照的 JSON 字节上限 |
-| `benchmarkRounds` | `3` | 每个目标路由的对拍轮数 |
-| `cacheBust` | `false` | 是否打破前缀缓存、只测冷算力 |
+| `retentionDays` | `30` | 数据保留天数 |
+| `recentLimit` | `2000` | 每 key 精确样本环上限 |
+| `sessionLimit` | `500` | 保留的会话数上限 |
+| `spikeFloorMs` | `10000` | 毛刺阈值 |
+| `modelAliases` | `{}` | canonical 模型 → 各厂商 model id |
+| `minSamplesForComparison` | `20` | 显著性所需最少成功样本 |
+| `logLimit` | `5000` | 请求日志保留的最近记录数 |
+| `logRetentionDays` | `7` | 请求日志保留天数 |
 
 ## 实现原理
 
-插件在 `llm/stream` 上注册 waterfall 监听器，包装返回的 `AsyncIterable<StreamChunk>`，并在**首次拉取**时起表——那一刻正是适配器惰性发起 HTTP 请求的时机。重试发生在 `agent/request-error` 层，因此每次重试都是独立的一次 `llm/stream`，失败尝试会被记为失败、绝不混入成功延迟。
+插件在 `llm/stream` 上注册 waterfall 监听器，包装返回的 `AsyncIterable<StreamChunk>`，在**首次拉取**时起表——那一刻正是适配器惰性发起 HTTP 请求的时机。失败携带 harness 的 `LlmFailure.code/status`，映射为上述五类。
 
 ## License
 

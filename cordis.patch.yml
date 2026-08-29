@@ -4,14 +4,22 @@
     - id: llm-latency
       name: dsh-llm-latency
       config:
-        # Number of distinct real-request snapshots retained for benchmarking.
-        snapshotLimit: 8
-        # Maximum JSON byte size of one retained snapshot; larger requests are
-        # still measured but are skipped for replay benchmarking.
-        snapshotMaxBytes: 4000000
-        # Default benchmark rounds per target route.
-        benchmarkRounds: 3
-        # When true, the benchmark injects a random system-prompt prefix to defeat
-        # prefix caching and measure cold compute only. Off by default so the
-        # comparison reflects real interactive use.
-        cacheBust: false
+        # Data retention window in days; older hour buckets and sessions are pruned.
+        retentionDays: 30
+        # Per-key exact-sample ring cap.
+        recentLimit: 2000
+        # Number of sessions retained (most recent first).
+        sessionLimit: 500
+        # TTFT above this many ms counts as a spike.
+        spikeFloorMs: 10000
+        # Canonical model name -> provider model ids, for same-model cross-vendor grouping.
+        # Example:
+        #   modelAliases:
+        #     deepseek-v4: ["deepseek-v4-pro", "deepseek-v4-flash", "bailian-deepseek-v4"]
+        modelAliases: {}
+        # Minimum ok samples before a median confidence interval is reported.
+        minSamplesForComparison: 20
+        # Request-log mirror cap (recent records kept for search/filter).
+        logLimit: 5000
+        # Request-log retention window in days.
+        logRetentionDays: 7

@@ -10,17 +10,22 @@ import type { Context, GenerateOptions, StreamChunk } from '../src/types.js'
 interface FakeCtx {
   listeners: Map<string, Array<(...args: unknown[]) => unknown>>
   services: Map<string, unknown>
+  toolsDisposers: (() => void)[]
   get(n: string): unknown
   on(n: string, l: (...args: unknown[]) => unknown): () => void
   effect(cb: () => (() => void) | void | undefined): () => void
+  tools: { register(def: unknown): () => void }
+  webServer: { register(route: unknown): () => void }
 }
 
 function fakeCtx(): FakeCtx & Context {
   const listeners = new Map<string, Array<(...args: unknown[]) => unknown>>()
   const services = new Map<string, unknown>()
+  const toolsDisposers: (() => void)[] = []
   return {
     listeners,
     services,
+    toolsDisposers,
     get(n: string) {
       return services.get(n)
     },
@@ -36,6 +41,17 @@ function fakeCtx(): FakeCtx & Context {
     effect(cb) {
       const d = cb()
       return d ?? (() => {})
+    },
+    tools: {
+      register() {
+        toolsDisposers.push(() => {})
+        return () => {}
+      },
+    },
+    webServer: {
+      register() {
+        return () => {}
+      },
     },
   } as unknown as FakeCtx & Context
 }
@@ -62,6 +78,8 @@ describe('apply wiring', () => {
 
     const dispose = apply(ctx, { statsPath })
     expect(ctx.listeners.has('llm/stream')).toBe(true)
+    // The single latency_report tool registers through the injected tools service.
+    expect(ctx.toolsDisposers).toHaveLength(1)
 
     const listener = ctx.listeners.get('llm/stream')![0]!
     const options: GenerateOptions = {
@@ -85,8 +103,11 @@ describe('apply wiring', () => {
     const store = loadStore(statsPath)
     expect(Object.keys(store.keys)).toHaveLength(1)
     const agg = Object.values(store.keys)[0]!
-    expect(agg.count).toBe(1)
-    expect(agg.okCount).toBe(1)
+    expect(agg.recent).toHaveLength(1)
+    const buckets = Object.values(agg.buckets)
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]!.ok).toBe(1)
+    expect(buckets[0]!.fail).toBe(0)
 
     dispose()
     expect(ctx.listeners.get('llm/stream') ?? []).toHaveLength(0)

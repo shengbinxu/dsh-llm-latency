@@ -7,7 +7,7 @@
  * an `async function*` whose fetch runs on first `next()`).
  */
 
-import type { Sample } from './sample.js'
+import type { Sample, ErrorKind } from './sample.js'
 import type { StreamChunk } from './types.js'
 import { newSample } from './sample.js'
 
@@ -21,7 +21,11 @@ export interface Measurement {
   cacheReadTokens: number
   cacheWriteTokens: number
   ok: boolean
-  errorKind: 'error' | 'aborted' | null
+  errorKind: ErrorKind | null
+  requestId?: string
+  failureCode?: string
+  failureStatus?: number
+  failureMessage?: string
 }
 
 export function freshMeasurement(): Measurement {
@@ -36,6 +40,31 @@ export function freshMeasurement(): Measurement {
     ok: true,
     errorKind: null,
   }
+}
+
+/**
+ * Map a terminal failure to a provider-neutral class. `kind` is the finish
+ * reason tag ('error' / 'aborted'); `code`/`status` come from the harness
+ * `LlmFailure` carried on the reason (or from a thrown `LlmError`).
+ */
+export function classifyError(args: { kind?: string; code?: string; status?: number }): ErrorKind {
+  if (args.kind === 'aborted') return 'aborted'
+  const code = args.code ?? ''
+  if (code === 'RATE_LIMIT' || args.status === 429) return 'rateLimited'
+  if (code.toUpperCase().includes('TIMEOUT')) return 'timeout'
+  if (code === 'ABORTED') return 'aborted'
+  if (code === 'SERVER' || (args.status !== undefined && args.status >= 500)) return 'server'
+  return 'other'
+}
+
+/** Classify a thrown error from the stream body (transport / adapter-level). */
+export function classifyThrownError(error: unknown): ErrorKind {
+  if (error === null || typeof error !== 'object') return 'other'
+  const e = error as { code?: unknown; status?: unknown; name?: unknown }
+  const code = typeof e.code === 'string' ? e.code : ''
+  const status = typeof e.status === 'number' ? e.status : undefined
+  const kind = e.name === 'AbortError' ? 'aborted' : undefined
+  return classifyError({ kind, code, status })
 }
 
 function isContentChunk(chunk: StreamChunk): boolean {
@@ -57,10 +86,17 @@ export function applyChunk(m: Measurement, chunk: StreamChunk, elapsedMs: number
     return
   }
   if (chunk.type === 'finish') {
-    const kind = (chunk.reason as { kind?: string })?.kind
+    const reason = chunk.reason as
+      | { kind?: string; failure?: { code?: string; status?: number; message?: string; requestId?: string } }
+      | undefined
+    const kind = reason?.kind
     if (kind === 'error' || kind === 'aborted') {
       m.ok = false
-      m.errorKind = kind
+      m.errorKind = classifyError({ kind, code: reason?.failure?.code, status: reason?.failure?.status })
+      m.requestId = reason?.failure?.requestId
+      m.failureCode = reason?.failure?.code
+      m.failureStatus = reason?.failure?.status
+      m.failureMessage = reason?.failure?.message
     }
   }
 }
@@ -82,7 +118,7 @@ export async function* instrumentStream(
   } catch (error) {
     if (m.errorKind === null) {
       m.ok = false
-      m.errorKind = 'error'
+      m.errorKind = classifyThrownError(error)
     }
     throw error
   } finally {
@@ -104,7 +140,7 @@ export async function consumeAndMeasure(source: AsyncIterable<StreamChunk>): Pro
 /** Fold a measurement into a finished sample. */
 export function measurementToSample(
   m: Measurement,
-  base: { ts: number; vendor: string; provider: string; model: string; source: 'live' | 'benchmark'; cold?: boolean | null },
+  base: { ts: number; vendor: string; provider: string; model: string; sessionId?: string },
 ): Sample {
   const sample = newSample(base)
   sample.ttftMs = m.ttftMs
@@ -116,5 +152,9 @@ export function measurementToSample(
   sample.cacheWriteTokens = m.cacheWriteTokens
   sample.ok = m.ok
   sample.errorKind = m.errorKind
+  if (m.requestId !== undefined) sample.requestId = m.requestId
+  if (m.failureCode !== undefined) sample.failureCode = m.failureCode
+  if (m.failureStatus !== undefined) sample.failureStatus = m.failureStatus
+  if (m.failureMessage !== undefined) sample.failureMessage = m.failureMessage
   return sample
 }

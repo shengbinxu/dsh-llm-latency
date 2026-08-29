@@ -7,11 +7,26 @@
  *   packages/llm/llm/src/types.ts  (GenerateOptions, StreamChunk, TokenUsage, FinishReason)
  *   packages/core/tools/src/index.ts (ToolDefinition)
  */
+import type { IncomingMessage, ServerResponse } from 'node:http';
 /** Cordis Context subset the plugin uses; the real context satisfies this. */
 export interface Context {
     get(name: string): unknown;
     on(name: string, listener: (...args: unknown[]) => unknown): () => void;
     effect(callback: () => (() => void) | void | undefined, label?: string): () => void;
+    /** The `tools` registry service; declared via `inject` so it is present at apply time. */
+    tools: ToolService;
+    /** The `webServer` service; declared via `inject` so it is present at apply time. */
+    webServer: WebServerService;
+}
+/** One HTTP route registered on the `webServer` service. */
+export interface WebRoute {
+    kind: 'exact' | 'prefix';
+    path: string;
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+}
+/** The `webServer` service subset the plugin uses. */
+export interface WebServerService {
+    register(route: WebRoute): () => void;
 }
 /** One registered provider route. */
 export interface ProviderInfo {

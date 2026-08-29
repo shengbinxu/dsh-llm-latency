@@ -1,82 +1,48 @@
 /**
- * Model-visible tools: `latency_report` and `latency_benchmark`.
+ * Model-visible tool: `latency_report`.
  */
 
-import type { Context } from './types.js'
+import type { Context, ToolService } from './types.js'
 
-export interface ToolDeps {
-  reportText: () => string
-  benchmarkText: (args: { rounds?: number; cacheBust?: boolean; providers?: string[] }) => Promise<string>
+export interface ReportArgs {
+  model?: string
+  vendors?: string[]
+  from?: number
+  to?: number
+  sessionIds?: string[]
 }
 
-interface ToolDef {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  output: {
-    schema: unknown
-    render(args: unknown, value: unknown): { type: 'text'; text: string }[]
-  }
-  execute(args: unknown, exec: unknown): Promise<unknown>
+export interface ToolDeps {
+  runReport(args: ReportArgs): Promise<string>
 }
 
 function textRender(): (args: unknown, value: unknown) => { type: 'text'; text: string }[] {
   return (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }]
 }
 
-/** Register both tools against the `tools` service; returns a combined disposer. */
+/** Register the report tool against the `tools` service; returns a disposer. */
 export function registerTools(ctx: Context, deps: ToolDeps): () => void {
-  const tools = ctx.get('tools') as { register(def: ToolDef): () => void } | undefined
-  if (tools === undefined) return () => {}
+  const tools: ToolService = ctx.tools
 
-  const disposers: (() => void)[] = []
-
-  disposers.push(tools.register({
+  return tools.register({
     name: 'latency_report',
     description:
-      '按厂商/模型汇总已记录的模型调用延迟对比：首 token、端到端延迟、吐字速率、缓存命中率与毛刺数量。用于客观对比不同平台（如 DeepSeek 官网、阿里云百炼、腾讯云）同一模型或同类模型的响应速度。',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    output: { schema: { type: 'string' }, render: textRender() },
-    async execute(): Promise<unknown> {
-      return deps.reportText()
-    },
-  }))
-
-  disposers.push(tools.register({
-    name: 'latency_benchmark',
-    description:
-      '复用最近一次真实请求的长上下文，并发对拍多个厂商/模型路由，输出同输入、同时刻的延迟对比。会产生真实调用费用。',
+      '按厂商/模型汇总已记录的 LLM 调用延迟与缓存命中对比：首 token、端到端延迟、吐字速率、缓存命中率、失败(429/超时)。支持按时间窗(from/to 为 epoch 毫秒)、按模型、按厂商、或按会话(sessionIds)对比；同模型跨厂商、同时段对比更有参考价值。',
     parameters: {
       type: 'object',
       properties: {
-        rounds: { type: 'number', description: '每个目标路由跑的轮数，默认 3' },
-        cacheBust: { type: 'boolean', description: '为 true 时向 system 注入随机前缀以打破前缀缓存，测冷算力' },
-        providers: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '限定参与对拍的 provider 路由 id；省略则对比全部已配置路由',
-        },
+        model: { type: 'string', description: '限定的 canonical 模型名；省略则全部模型' },
+        vendors: { type: 'array', items: { type: 'string' }, description: '限定的厂商；省略则全部' },
+        from: { type: 'number', description: '起始 epoch 毫秒；省略则为最早' },
+        to: { type: 'number', description: '结束 epoch 毫秒；省略则为当前' },
+        sessionIds: { type: 'array', items: { type: 'string' }, description: '按会话对比时的会话 id 列表' },
       },
       additionalProperties: false,
     },
     output: { schema: { type: 'string' }, render: textRender() },
     async execute(args: unknown): Promise<unknown> {
-      const a = (args ?? {}) as { rounds?: number; cacheBust?: boolean; providers?: string[] }
-      return await deps.benchmarkText(a)
+      const a = (args ?? {}) as ReportArgs
+      return await deps.runReport(a)
     },
-  }))
-
-  return () => {
-    for (const dispose of disposers) {
-      try {
-        dispose()
-      } catch {
-        // best-effort disposal
-      }
-    }
-  }
+  })
 }

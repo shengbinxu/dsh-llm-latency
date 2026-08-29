@@ -6,7 +6,7 @@
  * the underlying adapter lazily issues the HTTP request (the adapter stream is
  * an `async function*` whose fetch runs on first `next()`).
  */
-import type { Sample } from './sample.js';
+import type { Sample, ErrorKind } from './sample.js';
 import type { StreamChunk } from './types.js';
 /** Accumulated measurement state for one in-flight stream. */
 export interface Measurement {
@@ -18,9 +18,25 @@ export interface Measurement {
     cacheReadTokens: number;
     cacheWriteTokens: number;
     ok: boolean;
-    errorKind: 'error' | 'aborted' | null;
+    errorKind: ErrorKind | null;
+    requestId?: string;
+    failureCode?: string;
+    failureStatus?: number;
+    failureMessage?: string;
 }
 export declare function freshMeasurement(): Measurement;
+/**
+ * Map a terminal failure to a provider-neutral class. `kind` is the finish
+ * reason tag ('error' / 'aborted'); `code`/`status` come from the harness
+ * `LlmFailure` carried on the reason (or from a thrown `LlmError`).
+ */
+export declare function classifyError(args: {
+    kind?: string;
+    code?: string;
+    status?: number;
+}): ErrorKind;
+/** Classify a thrown error from the stream body (transport / adapter-level). */
+export declare function classifyThrownError(error: unknown): ErrorKind;
 /** Apply one chunk to a measurement; `elapsedMs` is time since stream start. */
 export declare function applyChunk(m: Measurement, chunk: StreamChunk, elapsedMs: number): void;
 /**
@@ -36,6 +52,5 @@ export declare function measurementToSample(m: Measurement, base: {
     vendor: string;
     provider: string;
     model: string;
-    source: 'live' | 'benchmark';
-    cold?: boolean | null;
+    sessionId?: string;
 }): Sample;

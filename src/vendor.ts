@@ -1,8 +1,8 @@
 /**
- * Vendor attribution: map a provider route id to a real vendor identity.
- * Provider ids alone are just routes; the vendor is the base URL host when the
- * provider is configured with one (e.g. Alibaba Bailian `dashscope.aliyuncs.com`
- * vs DeepSeek official `api.deepseek.com`). Falls back to the provider id.
+ * Provider attribution: map a provider route id to its real vendor identity
+ * (base-URL host) and its credential reference name (the `apiKeyEnv` the route
+ * resolves its key through). Provider ids alone are just routes; both facts
+ * come from the provider's settings section, with the provider id as fallback.
  */
 
 import type { Context } from './types.js'
@@ -10,12 +10,18 @@ import type { Context } from './types.js'
 export interface VendorResolver {
   /** Resolve the display vendor for one provider route. */
   vendorOf(provider: string): string
-  /** Snapshot of provider route -> vendor host. */
-  providers(): Record<string, string>
+  /** Resolve the credential reference name for one provider route, when configured. */
+  credentialRefOf(provider: string): string | undefined
+}
+
+interface RouteFacts {
+  host: string
+  credentialRef?: string
 }
 
 interface ProviderConfig {
   baseURL?: unknown
+  apiKeyEnv?: unknown
 }
 
 function hostOf(url: string): string {
@@ -26,29 +32,37 @@ function hostOf(url: string): string {
   }
 }
 
-/** Collect provider -> baseURL host from one settings value, if it has that shape. */
-function collect(value: unknown, out: Record<string, string>): void {
+function put(out: Record<string, RouteFacts>, id: string, cfg: ProviderConfig): void {
+  const baseURL = cfg.baseURL
+  const ref = cfg.apiKeyEnv
+  const facts = out[id] ?? { host: id }
+  if (typeof baseURL === 'string' && baseURL.length > 0) facts.host = hostOf(baseURL)
+  if (typeof ref === 'string' && ref.length > 0) facts.credentialRef = ref
+  out[id] = facts
+}
+
+/** Collect provider -> host + credentialRef from one settings value, if it has that shape. */
+function collect(value: unknown, out: Record<string, RouteFacts>): void {
   if (value === null || typeof value !== 'object') return
   const root = value as Record<string, unknown>
   const providers = root.providers
   if (providers !== null && typeof providers === 'object') {
     for (const [id, cfg] of Object.entries(providers as Record<string, unknown>)) {
-      const baseURL = (cfg as ProviderConfig | undefined)?.baseURL
-      if (typeof baseURL === 'string' && baseURL.length > 0) out[id] = hostOf(baseURL)
+      put(out, id, cfg as ProviderConfig)
     }
   }
-  const baseURL = root.baseURL
-  if (typeof baseURL === 'string' && baseURL.length > 0) {
+  // Single-route providers (llm-deepseek) put baseURL/apiKeyEnv at the top level.
+  if (typeof root.baseURL === 'string' || typeof root.apiKeyEnv === 'string') {
     const id = typeof root.provider === 'string' ? root.provider : 'deepseek'
-    out[id] = hostOf(baseURL)
+    put(out, id, root as ProviderConfig)
   }
 }
 
 export function createVendorResolver(ctx: Context): VendorResolver {
-  let cache: Record<string, string> = {}
+  let cache: Record<string, RouteFacts> = {}
 
-  function refresh(): Record<string, string> {
-    const result: Record<string, string> = {}
+  function refresh(): Record<string, RouteFacts> {
+    const result: Record<string, RouteFacts> = {}
     const settings = ctx.get('settings') as { get(ns: string): unknown } | undefined
     if (settings !== undefined) {
       for (const ns of ['llm-pi-ai', 'llm-deepseek', 'llm']) {
@@ -59,7 +73,7 @@ export function createVendorResolver(ctx: Context): VendorResolver {
     if (llm !== undefined) {
       try {
         for (const p of llm.listProviders()) {
-          if (result[p.id] === undefined) result[p.id] = p.id
+          if (result[p.id] === undefined) result[p.id] = { host: p.id }
         }
       } catch {
         // provider enumeration is best-effort; fall back to provider ids
@@ -75,10 +89,10 @@ export function createVendorResolver(ctx: Context): VendorResolver {
 
   return {
     vendorOf(provider) {
-      return cache[provider] ?? provider
+      return cache[provider]?.host ?? provider
     },
-    providers() {
-      return { ...cache }
+    credentialRefOf(provider) {
+      return cache[provider]?.credentialRef
     },
   }
 }

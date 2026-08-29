@@ -1,14 +1,16 @@
 /**
- * Model-visible tools: `latency_report` and `latency_benchmark`.
+ * Model-visible tool: `latency_report`.
  */
 import type { Context } from './types.js';
-export interface ToolDeps {
-    reportText: () => string;
-    benchmarkText: (args: {
-        rounds?: number;
-        cacheBust?: boolean;
-        providers?: string[];
-    }) => Promise<string>;
+export interface ReportArgs {
+    model?: string;
+    vendors?: string[];
+    from?: number;
+    to?: number;
+    sessionIds?: string[];
 }
-/** Register both tools against the `tools` service; returns a combined disposer. */
+export interface ToolDeps {
+    runReport(args: ReportArgs): Promise<string>;
+}
+/** Register the report tool against the `tools` service; returns a disposer. */
 export declare function registerTools(ctx: Context, deps: ToolDeps): () => void;
