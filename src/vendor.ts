@@ -24,6 +24,22 @@ interface ProviderConfig {
   apiKeyEnv?: unknown
 }
 
+/** One entry's form as the `settings` service reports it in dsh >= 0.2. */
+interface SettingsDescriptor {
+  /** Profile entry id, e.g. `llm-deepseek`. */
+  ns: string
+  /** The entry's live config. */
+  value: unknown
+}
+
+/** The `settings` service subset this plugin reads, across harness versions. */
+interface SettingsService {
+  /** dsh >= 0.2: every entry's form. */
+  describe?(): readonly SettingsDescriptor[]
+  /** dsh < 0.2: one namespace's value. */
+  get?(ns: string): unknown
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host
@@ -63,11 +79,14 @@ export function createVendorResolver(ctx: Context): VendorResolver {
 
   function refresh(): Record<string, RouteFacts> {
     const result: Record<string, RouteFacts> = {}
-    const settings = ctx.get('settings') as { get(ns: string): unknown } | undefined
-    if (settings !== undefined) {
-      for (const ns of ['llm-pi-ai', 'llm-deepseek', 'llm']) {
-        collect(settings.get(ns), result)
-      }
+    const settings = ctx.get('settings') as SettingsService | undefined
+    const namespaces = ['llm-pi-ai', 'llm-deepseek', 'llm']
+    if (typeof settings?.describe === 'function') {
+      // 0.2 moved namespace reads onto the descriptor list.
+      const byNs = new Map(settings.describe().map(d => [d.ns, d.value]))
+      for (const ns of namespaces) collect(byNs.get(ns), result)
+    } else if (typeof settings?.get === 'function') {
+      for (const ns of namespaces) collect(settings.get(ns), result)
     }
     const llm = ctx.get('llm') as { listProviders(): readonly { id: string; name: string }[] } | undefined
     if (llm !== undefined) {
@@ -83,9 +102,12 @@ export function createVendorResolver(ctx: Context): VendorResolver {
   }
 
   cache = refresh()
-  ctx.on('settings/updated', () => {
-    cache = refresh()
-  })
+  // 0.2 renamed the change event; the pre-0.2 name is never emitted there.
+  for (const event of ['settings/document-updated', 'settings/updated']) {
+    ctx.on(event, () => {
+      cache = refresh()
+    })
+  }
 
   return {
     vendorOf(provider) {
