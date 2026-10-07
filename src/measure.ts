@@ -16,6 +16,10 @@ export interface Measurement {
   ttftMs: number | null
   ttftTextMs: number | null
   e2eMs: number | null
+  lastTextMs: number | null
+  reasoningTokens: number | null
+  hasToolCalls: boolean
+  hasOutputUsage: boolean
   outputTokens: number
   inputTokens: number
   cacheReadTokens: number
@@ -33,6 +37,10 @@ export function freshMeasurement(): Measurement {
     ttftMs: null,
     ttftTextMs: null,
     e2eMs: null,
+    lastTextMs: null,
+    reasoningTokens: null,
+    hasToolCalls: false,
+    hasOutputUsage: false,
     outputTokens: 0,
     inputTokens: 0,
     cacheReadTokens: 0,
@@ -74,12 +82,22 @@ function isContentChunk(chunk: StreamChunk): boolean {
 /** Apply one chunk to a measurement; `elapsedMs` is time since stream start. */
 export function applyChunk(m: Measurement, chunk: StreamChunk, elapsedMs: number): void {
   if (isContentChunk(chunk)) {
+    if ((chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') && chunk.text.length === 0) return
+    if (chunk.type === 'tool-call-delta') {
+      m.hasToolCalls = true
+      if (!chunk.argumentsDelta && !chunk.name) return
+    }
     if (m.ttftMs === null) m.ttftMs = elapsedMs
-    if (chunk.type === 'text-delta' && m.ttftTextMs === null) m.ttftTextMs = elapsedMs
+    if (chunk.type === 'text-delta') {
+      if (m.ttftTextMs === null) m.ttftTextMs = elapsedMs
+      m.lastTextMs = elapsedMs
+    }
     return
   }
   if (chunk.type === 'usage') {
     m.outputTokens = chunk.usage.outputTokens ?? 0
+    m.hasOutputUsage = Number.isFinite(chunk.usage.outputTokens)
+    m.reasoningTokens = chunk.usage.reasoningTokens ?? null
     m.inputTokens = chunk.usage.inputTokens ?? 0
     m.cacheReadTokens = chunk.usage.cacheReadTokens ?? 0
     m.cacheWriteTokens = chunk.usage.cacheWriteTokens ?? 0
@@ -108,11 +126,11 @@ export function applyChunk(m: Measurement, chunk: StreamChunk, elapsedMs: number
 export async function* instrumentStream(
   source: AsyncIterable<StreamChunk>,
 ): AsyncGenerator<StreamChunk, Measurement, void> {
-  const startedAt = Date.now()
+  const startedAt = performance.now()
   const m = freshMeasurement()
   try {
     for await (const chunk of source) {
-      applyChunk(m, chunk, Date.now() - startedAt)
+      applyChunk(m, chunk, performance.now() - startedAt)
       yield chunk
     }
   } catch (error) {
@@ -122,7 +140,7 @@ export async function* instrumentStream(
     }
     throw error
   } finally {
-    m.e2eMs = Date.now() - startedAt
+    m.e2eMs = performance.now() - startedAt
   }
   return m
 }
@@ -146,6 +164,10 @@ export function measurementToSample(
   sample.ttftMs = m.ttftMs
   sample.ttftTextMs = m.ttftTextMs
   sample.e2eMs = m.e2eMs
+  sample.lastTextMs = m.lastTextMs
+  sample.reasoningTokens = m.reasoningTokens
+  sample.hasToolCalls = m.hasToolCalls
+  sample.hasOutputUsage = m.hasOutputUsage
   sample.outputTokens = m.outputTokens
   sample.inputTokens = m.inputTokens
   sample.cacheReadTokens = m.cacheReadTokens

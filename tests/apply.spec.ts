@@ -76,7 +76,7 @@ describe('apply wiring', () => {
     tempDirs.push(dir)
     const statsPath = join(dir, 'stats.json')
 
-    const dispose = apply(ctx, { statsPath })
+    const dispose = apply(ctx, { statsPath, logPath: join(dir, 'requests.jsonl') })
     expect(ctx.listeners.has('llm/stream')).toBe(true)
     // The single latency_report tool registers through the injected tools service.
     expect(ctx.toolsDisposers).toHaveLength(1)
@@ -118,7 +118,7 @@ describe('apply wiring', () => {
     const dir = mkdtempSync(join(tmpdir(), 'llm-latency-'))
     tempDirs.push(dir)
     const statsPath = join(dir, 'stats.json')
-    const dispose = apply(ctx, { statsPath })
+    const dispose = apply(ctx, { statsPath, logPath: join(dir, 'requests.jsonl') })
 
     const listener = ctx.listeners.get('llm/stream')![0]!
     const options: GenerateOptions = {

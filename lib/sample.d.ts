@@ -22,6 +22,14 @@ export interface Sample {
     ttftTextMs: number | null;
     /** Full stream duration in ms. */
     e2eMs: number | null;
+    /** Last nonempty visible-text delta, measured from dispatch; absent in older samples. */
+    lastTextMs?: number | null;
+    /** Provider-reported reasoning count; null means the adapter did not expose it. */
+    reasoningTokens?: number | null;
+    /** True when output also contains tool-call deltas whose token count is not separable. */
+    hasToolCalls?: boolean;
+    /** Provider reported output usage, rather than the measurement's initial zero. */
+    hasOutputUsage?: boolean;
     outputTokens: number;
     inputTokens: number;
     cacheReadTokens: number;

@@ -6,6 +6,7 @@
  * folded across processes without loss.
  */
 import type { Sample, ErrorKind } from './sample.js';
+import { type ThroughputAgg } from './throughput.js';
 /** Histogram bin edges in milliseconds; values land in [edge, nextEdge). */
 export declare const HIST_EDGES: readonly [0, 100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000, 12000, 20000, 30000, 60000, 120000];
 /** Number of bins = edges + 1 (the last bin holds every value >= the last edge). */
@@ -34,7 +35,7 @@ export declare const DAY_MS = 86400000;
 /** Epoch hour of a millisecond timestamp. */
 export declare function epochHour(ts: number): number;
 /** One calendar-aligned hour bucket, mergeable by summing. */
-export interface BucketAgg {
+export interface BucketAgg extends ThroughputAgg {
     ttft: number[];
     ttftText: number[];
     e2e: number[];
@@ -56,7 +57,7 @@ export interface KeyAgg {
 }
 export declare function emptyKeyAgg(): KeyAgg;
 /** Per-session aggregate for controlled same-prompt A/B comparisons. */
-export interface SessionAgg {
+export interface SessionAgg extends ThroughputAgg {
     vendor: string;
     provider: string;
     model: string;
@@ -127,7 +128,12 @@ export interface KeySummary {
     ttftTextP50: number | null;
     e2eP50: number | null;
     e2eP95: number | null;
+    /** Legacy total-output rate, retained for API consumers; not visible-answer throughput. */
     tokensPerSecond: number | null;
+    outputTokensPerSecond: number | null;
+    overallTokensPerSecond: number | null;
+    outputRateSamples: number;
+    overallRateSamples: number;
     cacheHitPct: number | null;
     cacheWritePct: number | null;
     inputTokens: number;
@@ -158,7 +164,12 @@ export interface SessionSummary {
     e2eP50: number | null;
     firstCallInputTokens: number;
     firstCallTtftMs: number | null;
+    /** Legacy total-output rate, retained for API consumers; not visible-answer throughput. */
     tokensPerSecond: number | null;
+    outputTokensPerSecond: number | null;
+    overallTokensPerSecond: number | null;
+    outputRateSamples: number;
+    overallRateSamples: number;
     cacheHitPct: number | null;
     cacheWritePct: number | null;
     inputTokens: number;

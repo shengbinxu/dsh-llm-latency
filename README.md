@@ -2,118 +2,113 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-Per-vendor / per-model / per-session LLM latency and cache-hit telemetry for
-DeepSeek Harness. It answers with numbers: **"which vendor is actually faster,
-and whose cache hits better — for the same model, over the same period?"**
+A passive LLM latency dashboard for DeepSeek Harness. See how long models take to respond, compare vendors, and inspect individual requests without starting extra model calls.
 
-- **Passive telemetry** — every real model call is measured (first token,
-  end-to-end, tokens/sec, cache-hit share) and classified by failure kind
-  (429 / timeout / 5xx / abort).
-- **Three comparisons**:
-  1. **Overview** — rank all vendor·model rows over any time window.
-  2. **Time-window** — same model across vendors over an arbitrary window
-     (e.g. today 10:00–10:30), with P50/P90/P95/P99, failure rates, cache-hit
-     rate, sample counts, and median significance.
-  3. **Session** — run the same prompt in two sessions, each pinned to one
-     vendor's model, then compare the whole runs; valid only when a session
-     never switched models.
-- **Dashboard + tool** — a self-contained HTML dashboard (overview / time-window
-  / session / request-log views) plus the `latency_report` model tool and CSV
-  export.
-- **Request log** — every model call is persisted as one record (time, vendor,
-  model, session, request id, credential ref, TTFT, end-to-end, input/output
-  tokens, cache-hit rate, status), searchable and filterable in the dashboard.
+## What's in v0.2.0
 
-See [DESIGN.md](DESIGN.md) for the data model and comparison methodology.
+- **Native dashboard:** open **LLM Latency** in the DSH sidebar. Overview, time-window comparison, session comparison, and request log share the existing recorded data.
+- **Composer quick view:** the **Latency** button opens recent latency. Select the last 15 minutes, hour, or three hours; inspect the latest response delay, median response delay, median first-text delay, successful/total samples, and last sampling time.
+- **Honest freshness:** idle models show **No recent samples**. The panel never substitutes a historical average for a current measurement or probes an unused model.
+- **Metric explanations:** hover or keyboard-focus latency and total-output headings for their timing and eligibility rules. The native interface follows DSH's theme and locale; Chinese metric names use plain Chinese.
+- **Legacy rate restored:** total output speed remains available alongside strict visible-answer output and overall rates. Missing reasoning usage does not hide the legacy value or turn missing visible rates into zero.
+- **Existing interfaces retained:** `/llm-latency/`, JSON endpoints, the `latency_report` tool, recorded statistics, and CSV export remain available.
 
 ## Screenshots
 
-**Overview** — rank every vendor·model row over a time window.
+**Recent quick view** — completed calls only, with last-sampling times and explicit idle states.
 
-![Overview](docs/screenshots/overview.png)
+![Recent quick view](docs/screenshots/quick-panel-v0.2.0.png)
 
-**Time-window** — the same model across vendors, with P50/P90/P95/P99, failure
-rates, cache-hit rate, and median significance.
+**Native dashboard** — total output speed and visible-answer rates are separate; hover explanations describe the measurements.
 
-![Time-window comparison](docs/screenshots/time-window.png)
+![Native dashboard](docs/screenshots/dashboard-v0.2.0.png)
 
-**Session** — compare two single-model sessions side by side.
+## Install or update
 
-![Session comparison](docs/screenshots/session.png)
+Tested with DeepSeek Harness **0.2.1-alpha.1**, Node.js 22, and the Web profile. Harness extension APIs are pre-stable; compatibility with other versions is not guaranteed.
 
-**Request log** — search and filter every model call.
-
-![Request log](docs/screenshots/request-log.png)
-
-## Install
+Install the tagged GitHub version:
 
 ```sh
-dsh plugin --profile web add github:shengbinxu/dsh-llm-latency
+dsh plugin --profile web add 'github:shengbinxu/dsh-llm-latency#v0.2.0'
 ```
 
-Then restart the profile. The plugin applies after `dsh-base` (it needs the
-`llm` service), intercepts `llm/stream`, and serves the dashboard at:
+Alternatively, download the `.tgz` from [GitHub Releases](https://github.com/shengbinxu/dsh-llm-latency/releases/tag/v0.2.0) and install that file:
 
+```sh
+dsh plugin --profile web add ./dsh-llm-latency-0.2.0.tgz
 ```
-http://127.0.0.1:3080/llm-latency/
-```
 
-## Usage
+Refresh the GUI after installation. If activation requires a restart, restart the existing DSH service using its normal service manager. The distributed package includes built Host files and its browser entry; installation does not require a build step.
 
-- **Dashboard** — switch between 总览 / 时段对比 / 会话对比 / 请求日志:
-  - *时段对比*: pick a model, pick a window, compare vendors side by side.
-  - *会话对比*: pick two sessions that each used a single model, compare them.
-  - *请求日志*: search and filter every model call by request id, vendor,
-    model, session, credential ref, or status.
-- **Model tool** — ask the agent *"帮我看看各厂商延迟对比"* (`latency_report`);
-  it accepts `model`, `vendors`, `from`/`to`, and `sessionIds`.
+## Use the plugin
 
-## Where data lives
+| Entry | What it shows |
+| --- | --- |
+| DSH sidebar → **LLM Latency** | Full dashboard with four views and CSV export |
+| Conversation composer → **Latency** | Exact recent latency from retained completed-call samples |
+| `http://127.0.0.1:3080/llm-latency/` | Retained standalone dashboard; use your configured host/port |
+| `latency_report` tool | Recorded vendor/model or session comparison |
 
-Aggregates persist at `$DSH_HOME/llm-latency/stats.json` (default
-`~/.dsh/llm-latency/stats.json`). Delete the file to reset. The request log is
-append-only at `$DSH_HOME/llm-latency/requests.jsonl`.
+The quick panel refreshes every 10 seconds while open and stops on close. Close, Escape, and outside clicks dismiss it; **Open full dashboard** switches to the native page without changing the selected conversation.
 
-## Metrics
+Recent windows use request start timestamps and exact retained samples. Medians include only successful calls with that metric; first-response and first-text sample sets can differ. Ring limits can reduce the retained count. No recent sample means this installation has no fresh measurement, not that the model is unavailable.
 
-- **TTFT** (primary) — time to first content chunk; **e2e** — full stream;
-  **tok/s** — decode throughput.
-- **Cache-hit rate** — `cacheRead / (input + cacheRead + cacheWrite)`;
-  **cache-write rate** — `cacheWrite / (input + cacheRead + cacheWrite)`.
-- **Failure breakdown** — 429 (rate-limited), timeout, 5xx, abort, other, each
-  as a share of attempts. Retries are separate `llm/stream` calls, so a 429 is
-  recorded as an attempt-level failure.
+The full dashboard defaults to the last 30 days. Model/vendor/time filters apply to overview and cross-vendor comparison. Session comparison summarizes full sessions; use single-model sessions and similar prompts. Request logs support search, status, model, time, and one selected vendor. Historical percentiles use overlapping whole-hour buckets, so boundary hours may contain calls outside the requested window.
 
-## Comparison methodology
+## What the metrics mean
 
-Same-model cross-vendor comparisons always slice every vendor to the **same
-time window**. Percentiles come from merged histograms; the median's 95%
-bootstrap confidence interval comes from the recent sample ring when the window
-has enough samples (`minSamplesForComparison`). Two vendors differ
-significantly when their median CIs do not overlap. Insufficient samples and
-gross sample imbalance are flagged.
+| Metric | Calculation |
+| --- | --- |
+| First-response wait / TTFT | First stream pull → first nonempty text, reasoning, or tool-call delta |
+| First-text wait | First stream pull → first nonempty visible-answer text delta; reasoning and tools do not count |
+| End-to-end duration | First stream pull → stream completion; excludes other tools in the Agent turn |
+| Median / p50 | Middle eligible value; historical dashboard values are histogram estimates, quick-view values are exact |
+| p95 | Approximate value that 95% of eligible successful samples do not exceed |
+| Total output speed | Legacy cumulative total-output tokens ÷ successful calls' cumulative time from first content to completion |
+| Visible-answer output speed | Eligible visible tokens ÷ seconds between first and last nonempty text delta |
+| Visible-answer overall speed | Eligible visible tokens ÷ full stream duration, including the initial wait |
+| Rate samples | Separate eligible counts for visible-answer output / overall rates |
+| Cache hit / write | Cached-read / cached-write tokens ÷ total uncached + cached-read + cached-write input |
 
-## Configuration
+Timing starts when the adapter is first pulled, usually when it starts its request, rather than when the user clicks Send. A first response can be reasoning or a tool call before any answer text appears. Browser rendering time is excluded.
 
-Set in `cordis.patch.yml` (or override the row):
+**Why a visible rate can be `—`:** visible tokens require output usage, a separate reasoning count (explicit zero is valid), visible text, success, and no tool-call deltas. Missing data is not zero. A single text delta supports overall speed only. The tested Harness pi-ai adapter folds reasoning into total output without exposing its separate count; its strict visible rates therefore remain unavailable. No character estimates or assumed zero reasoning counts are used.
+
+**Legacy rate limitation:** total output may include reasoning, tools, and reported failed-call output, while the old duration denominator includes successful calls only. Failures can inflate this legacy rate. It is retained for compatibility and displayed separately, not presented as pure answer-text speed. JSON and CSV keep `tokensPerSecond` for this legacy metric and `outputTokensPerSecond` / `overallTokensPerSecond` for strict visible rates.
+
+Latency also depends on prompt size, reasoning settings, network conditions, and tool use. Recorded samples describe this installation's requests, not a provider-wide load monitor. Cross-vendor confidence intervals concern TTFT only, not throughput.
+
+## Data and configuration
+
+Aggregates persist in `$DSH_HOME/llm-latency/stats.json` and individual records in `$DSH_HOME/llm-latency/requests.jsonl` (`~/.dsh` by default). Auxiliary compaction/title calls appear in the request log but not rankings or the recent panel. Upgrades preserve old latency/cache data; old samples without visible-rate fields contribute no eligible visible-rate samples.
+
+Configure the `llm-latency` row through the bundle patch or a profile override:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `retentionDays` | `30` | Data retention window in days |
-| `recentLimit` | `2000` | Per-key exact-sample ring cap |
-| `sessionLimit` | `500` | Sessions retained (most recent first) |
-| `spikeFloorMs` | `10000` | TTFT above this counts as a spike |
-| `modelAliases` | `{}` | Canonical model → provider model ids |
-| `minSamplesForComparison` | `20` | Minimum ok samples before a median CI is reported |
-| `logLimit` | `5000` | Request-log mirror cap (recent records kept) |
-| `logRetentionDays` | `7` | Request-log retention window in days |
+| `retentionDays` | `30` | Historical aggregation retention |
+| `recentLimit` | `2000` | Exact-sample ring capacity per vendor/provider/model |
+| `sessionLimit` | `500` | Retained sessions |
+| `spikeFloorMs` | `10000` | Slow first-response threshold |
+| `modelAliases` | `{}` | Canonical model → provider model IDs |
+| `minSamplesForComparison` | `20` | Minimum successful samples for median confidence intervals |
+| `logLimit` | `5000` | Request-log memory capacity |
+| `logRetentionDays` | `7` | Request-log retention |
+| `statsPath` / `logPath` | Default data paths | Optional persistence overrides |
 
-## How it works
+## Development
 
-The plugin registers a waterfall listener on `llm/stream`, wraps the returned
-`AsyncIterable<StreamChunk>`, and starts its clock on the **first pull** — the
-moment the adapter lazily issues the HTTP request. Failures carry the harness
-`LlmFailure.code`/`.status`, mapped to the five-class taxonomy above.
+```sh
+npm ci
+npm run typecheck
+npm run build
+npm test
+```
+
+Commit `lib/` with its source changes: GitHub installation consumes the built Host files. The browser entry is self-contained JavaScript loaded through the Harness module table and requires no added bundler or separate React installation.
+
+The Host wraps `llm/stream` and exposes read-only JSON. Native UI contributions register in `main`, `sidebar.panellist`, `conversation.input.left`, and `shell.overlay`; both browser forms read the same Host data. Resource cleanup belongs to Cordis effects so unloading releases the route and listener. See [DESIGN.md](DESIGN.md) for the original data/comparison design.
 
 ## License
 

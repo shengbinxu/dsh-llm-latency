@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-latency",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Per-vendor/per-model LLM latency telemetry and cross-vendor benchmark plugin for DeepSeek Harness",
   "license": "MIT",
   "type": "module",
@@ -11,24 +11,43 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": "./src/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
+    "src/client.js",
     "cordis.patch.yml",
-    "README.md"
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh.md",
+    "DESIGN.md",
+    "docs/screenshots/dashboard-v0.2.0.png",
+    "docs/screenshots/quick-panel-v0.2.0.png"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node --check src/client.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },

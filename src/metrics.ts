@@ -7,6 +7,7 @@
  */
 
 import type { Sample, ErrorKind } from './sample.js'
+import { emptyThroughput, mergeThroughput, sampleThroughput, throughputRate, type ThroughputAgg } from './throughput.js'
 
 /** Histogram bin edges in milliseconds; values land in [edge, nextEdge). */
 export const HIST_EDGES = [
@@ -99,7 +100,7 @@ export function epochHour(ts: number): number {
 }
 
 /** One calendar-aligned hour bucket, mergeable by summing. */
-export interface BucketAgg {
+export interface BucketAgg extends ThroughputAgg {
   ttft: number[]
   ttftText: number[]
   e2e: number[]
@@ -127,6 +128,7 @@ export function emptyBucket(): BucketAgg {
     cacheRead: 0,
     cacheWrite: 0,
     decodeMs: 0,
+    ...emptyThroughput(),
     spikes: 0,
   }
 }
@@ -142,7 +144,7 @@ export function emptyKeyAgg(): KeyAgg {
 }
 
 /** Per-session aggregate for controlled same-prompt A/B comparisons. */
-export interface SessionAgg {
+export interface SessionAgg extends ThroughputAgg {
   vendor: string
   provider: string
   model: string
@@ -186,6 +188,7 @@ export function emptySessionAgg(sample: Sample): SessionAgg {
     cacheRead: 0,
     cacheWrite: 0,
     decodeMs: 0,
+    ...emptyThroughput(),
     spikes: 0,
   }
 }
@@ -285,6 +288,7 @@ export function recordSample(store: StatsStore, sample: Sample, opts: RecordOpti
     recordOutcome(bucket, sample)
     recordLatencies(bucket, sample, opts.spikeFloorMs)
     recordTokens(bucket, sample)
+    mergeThroughput(bucket, sampleThroughput(sample))
   }
 
   agg.recent.push(sample)
@@ -308,6 +312,7 @@ export function recordSample(store: StatsStore, sample: Sample, opts: RecordOpti
     recordOutcome(session, sample)
     recordLatencies(session, sample, opts.spikeFloorMs)
     recordTokens(session, sample)
+    mergeThroughput(session, sampleThroughput(sample))
   }
 
   pruneSessions(store, now, opts)
@@ -343,6 +348,7 @@ export function mergeBucket(dst: BucketAgg, src: BucketAgg): void {
   dst.cacheRead += src.cacheRead
   dst.cacheWrite += src.cacheWrite
   dst.decodeMs += src.decodeMs
+  mergeThroughput(dst, src)
   dst.spikes += src.spikes
 }
 
@@ -387,6 +393,7 @@ function mergeSession(dst: SessionAgg, src: SessionAgg): void {
   dst.cacheRead += src.cacheRead
   dst.cacheWrite += src.cacheWrite
   dst.decodeMs += src.decodeMs
+  mergeThroughput(dst, src)
   dst.spikes += src.spikes
   dst.calls += src.calls
   dst.firstTs = Math.min(dst.firstTs, src.firstTs)
@@ -438,7 +445,12 @@ export interface KeySummary {
   ttftTextP50: number | null
   e2eP50: number | null
   e2eP95: number | null
+  /** Legacy total-output rate, retained for API consumers; not visible-answer throughput. */
   tokensPerSecond: number | null
+  outputTokensPerSecond: number | null
+  overallTokensPerSecond: number | null
+  outputRateSamples: number
+  overallRateSamples: number
   cacheHitPct: number | null
   cacheWritePct: number | null
   inputTokens: number
@@ -468,6 +480,10 @@ export function summarizeBucket(vendor: string, provider: string, model: string,
     e2eP50: histPercentile(b.e2e, 0.5),
     e2eP95: histPercentile(b.e2e, 0.95),
     tokensPerSecond: tokensPerSecond(b.outputTokens, b.decodeMs),
+    outputTokensPerSecond: throughputRate(b.outputRateTokens, b.outputRateMs),
+    overallTokensPerSecond: throughputRate(b.overallRateTokens, b.overallRateMs),
+    outputRateSamples: b.outputRateSamples,
+    overallRateSamples: b.overallRateSamples,
     cacheHitPct: cacheHitShare(b.inputTokens, b.cacheRead, b.cacheWrite),
     cacheWritePct: cacheWriteShare(b.inputTokens, b.cacheRead, b.cacheWrite),
     inputTokens: b.inputTokens,
@@ -509,7 +525,12 @@ export interface SessionSummary {
   e2eP50: number | null
   firstCallInputTokens: number
   firstCallTtftMs: number | null
+  /** Legacy total-output rate, retained for API consumers; not visible-answer throughput. */
   tokensPerSecond: number | null
+  outputTokensPerSecond: number | null
+  overallTokensPerSecond: number | null
+  outputRateSamples: number
+  overallRateSamples: number
   cacheHitPct: number | null
   cacheWritePct: number | null
   inputTokens: number
@@ -537,6 +558,10 @@ export function summarizeSession(id: string, s: SessionAgg): SessionSummary {
     firstCallInputTokens: s.firstCallInputTokens,
     firstCallTtftMs: s.firstCallTtftMs,
     tokensPerSecond: tokensPerSecond(s.outputTokens, s.decodeMs),
+    outputTokensPerSecond: throughputRate(s.outputRateTokens, s.outputRateMs),
+    overallTokensPerSecond: throughputRate(s.overallRateTokens, s.overallRateMs),
+    outputRateSamples: s.outputRateSamples,
+    overallRateSamples: s.overallRateSamples,
     cacheHitPct: cacheHitShare(s.inputTokens, s.cacheRead, s.cacheWrite),
     cacheWritePct: cacheWriteShare(s.inputTokens, s.cacheRead, s.cacheWrite),
     inputTokens: s.inputTokens,

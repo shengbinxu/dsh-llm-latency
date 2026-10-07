@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { loadStore } from '../src/store.js'
+import { emptyStore, emptyBucket, summarizeStore } from '../src/metrics.js'
 
 const tempDirs: string[] = []
 afterEach(() => {
@@ -42,6 +43,26 @@ describe('store migration', () => {
     const agg = Object.values(store.keys)[0]!
     expect(agg.recent).toHaveLength(1)
     expect(Object.values(agg.buckets)).toHaveLength(1)
+  })
+
+  it('preserves historical counts while initializing only new throughput counters', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'llm-latency-legacy-'))
+    tempDirs.push(dir)
+    const path = join(dir, 'stats.json')
+    const store = emptyStore()
+    const bucket = emptyBucket()
+    bucket.ok = 7
+    bucket.outputTokens = 999
+    const legacy = Object.fromEntries(Object.entries(bucket).filter(([key]) => !key.startsWith('outputRate') && !key.startsWith('overallRate')))
+    store.keys['v|p|m'] = { buckets: { [String(Math.floor(Date.now() / 3600000))]: legacy as typeof bucket }, recent: [] }
+    writeFileSync(path, JSON.stringify(store))
+    const loaded = loadStore(path)
+    const summary = summarizeStore(loaded, 0, Date.now() + 1)[0]!
+    expect(summary.okCount).toBe(7)
+    expect(summary.outputTokens).toBe(999)
+    expect(summary.outputTokensPerSecond).toBeNull()
+    expect(summary.overallTokensPerSecond).toBeNull()
+    expect(summary.outputRateSamples).toBe(0)
   })
 
   it('returns an empty store for an unknown version', () => {

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "LLM Latency",
+    "description": "Compare latency, throughput, cache hits, and request logs by vendor, model, and session."
+  }
+}

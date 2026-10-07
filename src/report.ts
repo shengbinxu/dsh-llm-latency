@@ -38,15 +38,15 @@ export function formatSummaryRows(rows: KeySummary[]): string {
     return '该时段暂无采样数据。'
   }
   const lines = [
-    '| 厂商 / 模型 | 样本(成功/总) | 首token p50 | 首token p95 | 端到端 p50 | 吐字 tok/s | 缓存命中 | 失败 |',
-    '|---|---|---|---|---|---|---|---|',
+    '| 厂商 / 模型 | 样本(成功/总) | 首token p50 | 首token p95 | 端到端 p50 | 输出 token/s | 整体 token/s | 吞吐样本 | 缓存命中 | 失败 |',
+    '|---|---|---|---|---|---|---|---|---|---|',
   ]
   for (const r of rows) {
     lines.push(
-      `| ${r.vendor} · ${r.model} | ${r.okCount}/${r.count} | ${ms(r.ttftP50)} | ${ms(r.ttftP95)} | ${ms(r.e2eP50)} | ${tps(r.tokensPerSecond)} | ${pct(r.cacheHitPct)} | ${errorSummary(r)} |`,
+      `| ${r.vendor} · ${r.model} | ${r.okCount}/${r.count} | ${ms(r.ttftP50)} | ${ms(r.ttftP95)} | ${ms(r.e2eP50)} | ${tps(r.outputTokensPerSecond)} | ${tps(r.overallTokensPerSecond)} | ${r.outputRateSamples}/${r.overallRateSamples} | ${pct(r.cacheHitPct)} | ${errorSummary(r)} |`,
     )
   }
-  return lines.join('\n')
+  return lines.join('\n') + '\n\n吞吐率仅含可见 token 可确定的成功请求；汇总为有效 token 总和 / 对应耗时总和，吞吐样本为输出/整体有效数；缺失数据为 —。计算说明见 /llm-latency/。'
 }
 
 /** Overall (windowed) comparison table over the durable store. */
@@ -62,8 +62,8 @@ export function formatComparisonTable(result: ComparisonResult): string {
   const lines = [
     `## 同模型跨厂商对比：${result.model}`,
     '',
-    '| 厂商 | 样本(成功/总) | 首token p50 | 首token p95 | 端到端 p50 | 吐字 tok/s | 缓存命中 | 缓存写入 | 失败 | 显著性 |',
-    '|---|---|---|---|---|---|---|---|---|---|',
+    '| 厂商 | 样本(成功/总) | 首token p50 | 首token p95 | 端到端 p50 | 输出 token/s | 整体 token/s | 吞吐样本 | 缓存命中 | 缓存写入 | 失败 | 显著性 |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
   ]
   const significant = new Set<number>()
   for (let i = 0; i < result.rows.length; i += 1) {
@@ -82,11 +82,11 @@ export function formatComparisonTable(result: ComparisonResult): string {
     const ci = r.medianCi
     const sig = ci === null ? '证据不足' : significant.has(i) ? '有显著差异' : '无显著差异'
     lines.push(
-      `| ${s.vendor} | ${s.okCount}/${s.count} | ${ms(s.ttftP50)} | ${ms(s.ttftP95)} | ${ms(s.e2eP50)} | ${tps(s.tokensPerSecond)} | ${pct(s.cacheHitPct)} | ${pct(s.cacheWritePct)} | ${errorSummary(s)} | ${sig} |`,
+      `| ${s.vendor} | ${s.okCount}/${s.count} | ${ms(s.ttftP50)} | ${ms(s.ttftP95)} | ${ms(s.e2eP50)} | ${tps(s.outputTokensPerSecond)} | ${tps(s.overallTokensPerSecond)} | ${s.outputRateSamples}/${s.overallRateSamples} | ${pct(s.cacheHitPct)} | ${pct(s.cacheWritePct)} | ${errorSummary(s)} | ${sig} |`,
     )
   }
   for (const w of result.warnings) lines.push('', `> ⚠️ ${w}`)
-  return lines.join('\n')
+  return lines.join('\n') + '\n\n吞吐率仅含可见 token 可确定的成功请求；汇总为有效 token 总和 / 对应耗时总和，吞吐样本为输出/整体有效数；缺失数据为 —。计算说明见 /llm-latency/。'
 }
 
 /** Session comparison table. */
@@ -95,15 +95,15 @@ export function formatSessionTable(result: SessionCompareResult): string {
     return '未找到所选会话。'
   }
   const lines = [
-    '| 会话 | 厂商 · 模型 | 调用(成功/总) | 首轮TTFT | 首轮输入token | 首token p50 | 首token p95 | 缓存命中 | 失败 |',
-    '|---|---|---|---|---|---|---|---|---|',
+    '| 会话 | 厂商 · 模型 | 调用(成功/总) | 首轮TTFT | 首轮输入token | 首token p50 | 首token p95 | 输出 token/s | 整体 token/s | 吞吐样本 | 缓存命中 | 失败 |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
   ]
   for (const r of result.rows) {
     const s = r.summary
     lines.push(
-      `| ${s.id.slice(0, 8)} | ${s.vendor} · ${s.model}${s.singleModel ? '' : ' ⚠️换模'} | ${s.okCount}/${s.calls} | ${ms(s.firstCallTtftMs)} | ${s.firstCallInputTokens} | ${ms(s.ttftP50)} | ${ms(s.ttftP95)} | ${pct(s.cacheHitPct)} | ${s.failCount === 0 ? '0' : `${s.failCount}次`} |`,
+      `| ${s.id.slice(0, 8)} | ${s.vendor} · ${s.model}${s.singleModel ? '' : ' ⚠️换模'} | ${s.okCount}/${s.calls} | ${ms(s.firstCallTtftMs)} | ${s.firstCallInputTokens} | ${ms(s.ttftP50)} | ${ms(s.ttftP95)} | ${tps(s.outputTokensPerSecond)} | ${tps(s.overallTokensPerSecond)} | ${s.outputRateSamples}/${s.overallRateSamples} | ${pct(s.cacheHitPct)} | ${s.failCount === 0 ? '0' : `${s.failCount}次`} |`,
     )
   }
   for (const w of result.warnings) lines.push('', `> ⚠️ ${w}`)
-  return lines.join('\n')
+  return lines.join('\n') + '\n\n吞吐率仅含可见 token 可确定的成功请求；汇总为有效 token 总和 / 对应耗时总和，吞吐样本为输出/整体有效数；缺失数据为 —。计算说明见 /llm-latency/。'
 }

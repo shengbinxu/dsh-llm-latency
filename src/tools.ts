@@ -27,7 +27,7 @@ export function registerTools(ctx: Context, deps: ToolDeps): () => void {
   return tools.register({
     name: 'latency_report',
     description:
-      '按厂商/模型汇总已记录的 LLM 调用延迟与缓存命中对比：首 token、端到端延迟、吐字速率、缓存命中率、失败(429/超时)。支持按时间窗(from/to 为 epoch 毫秒)、按模型、按厂商、或按会话(sessionIds)对比；同模型跨厂商、同时段对比更有参考价值。',
+      '按厂商/模型汇总已记录的 LLM 调用延迟与缓存命中对比：首 token、端到端延迟、可见输出吞吐率与整体吞吐率、缓存命中率、失败(429/超时)。支持按时间窗(from/to 为 epoch 毫秒)、按模型、按厂商、或按会话(sessionIds)对比；同模型跨厂商、同时段对比更有参考价值。',
     parameters: {
       type: 'object',
       properties: {

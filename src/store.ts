@@ -11,6 +11,7 @@ import { join, dirname } from 'node:path'
 
 import { emptyStore, recordSample, type RecordOptions, type StatsStore } from './metrics.js'
 import type { Sample, ErrorKind } from './sample.js'
+import { emptyThroughput } from './throughput.js'
 
 export const DEFAULT_RECORD_OPTIONS: RecordOptions = {
   recentLimit: 2000,
@@ -88,6 +89,10 @@ export function loadStore(path: string, opts: RecordOptions = DEFAULT_RECORD_OPT
       const store = parsed as unknown as StatsStore
       if (typeof store.keys === 'object' && typeof store.sessions === 'object') {
         store.retentionDays = opts.retentionDays
+        for (const agg of Object.values(store.keys)) {
+          for (const bucket of Object.values(agg.buckets)) Object.assign(bucket, { ...emptyThroughput(), ...bucket })
+        }
+        for (const session of Object.values(store.sessions)) Object.assign(session, { ...emptyThroughput(), ...session })
         return store
       }
       return emptyStore(opts.retentionDays)

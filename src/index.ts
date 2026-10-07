@@ -31,9 +31,11 @@ import { compareVendors } from './comparison.js'
 import { compareSessions } from './session.js'
 import { formatSummaryRows, formatComparisonTable, formatSessionTable } from './report.js'
 import { renderDashboardHtml } from './dashboard.js'
+import { METRIC_HELP, METRIC_HELP_EN } from './metric-help.js'
 import { registerTools, type ReportArgs } from './tools.js'
 import { createRequestLogStore, requestLogPath, appendRequestLog, queryRequestLog, compactRequestLog } from './request-log.js'
-import type { Sample } from './sample.js'
+import { recentLatency } from './recent.js'
+import { sampleThroughput, throughputRate, visibleOutputTokens } from './throughput.js'
 
 export const name = 'llm-latency'
 
@@ -109,11 +111,12 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   function wrapLive(options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
     return (async function* () {
       const startedAt = Date.now()
+      const startedClock = performance.now()
       const m = freshMeasurement()
       try {
         const source = next()
         for await (const chunk of source) {
-          applyChunk(m, chunk, Date.now() - startedAt)
+          applyChunk(m, chunk, performance.now() - startedClock)
           yield chunk
         }
       } catch (error) {
@@ -131,7 +134,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         }
         throw error
       } finally {
-        m.e2eMs = Date.now() - startedAt
+        m.e2eMs = performance.now() - startedClock
         const sample = measurementToSample(m, {
           ts: startedAt,
           vendor: vendor.vendorOf(options.provider),
@@ -249,6 +252,22 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         res.end(renderDashboardHtml())
         return
       }
+      if (req.method === 'GET' && pathname === '/llm-latency/recent.json') {
+        const minutes = Number(url.searchParams.get('minutes'))
+        if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) {
+          sendJson(res, 400, { error: 'minutes must be between 1 and 1440' })
+          return
+        }
+        const to = Date.now()
+        const from = to - minutes * 60_000
+        sendJson(res, 200, { from, to, minutes, rows: recentLatency(store, from, to) })
+        return
+      }
+      if (req.method === 'GET' && pathname === '/llm-latency/metrics.json') {
+        const help = url.searchParams.get('lang') === 'en' ? METRIC_HELP_EN : METRIC_HELP
+        sendJson(res, 200, { items: help.map(([name, explanation]) => ({ name, explanation })) })
+        return
+      }
       if (req.method === 'GET' && pathname === '/llm-latency/stats.json') {
         const { from, to } = parseWindow(url)
         const model = url.searchParams.get('model') ?? undefined
@@ -320,21 +339,25 @@ export function apply(ctx: Context, config: Config = {}): () => void {
           limit,
           offset,
         )
-        sendJson(res, 200, result)
+        sendJson(res, 200, { ...result, records: result.records.map((sample) => {
+          const rate = sampleThroughput(sample)
+          return { ...sample, visibleOutputTokens: visibleOutputTokens(sample),
+            outputTokensPerSecond: throughputRate(rate.outputRateTokens, rate.outputRateMs),
+            overallTokensPerSecond: throughputRate(rate.overallRateTokens, rate.overallRateMs) }
+        }) })
         return
       }
       sendJson(res, 404, { error: 'not found' })
     },
   }))
 
-  return () => {
+  let disposed = false
+  const dispose = (): void => {
+    if (disposed) return
+    disposed = true
     compactRequestLog(logStore)
-    for (const dispose of [...disposers].reverse()) {
-      try {
-        dispose()
-      } catch {
-        // best-effort disposal
-      }
-    }
+    for (const release of [...disposers].reverse()) release()
   }
+  ctx.effect(() => dispose, 'llm-latency: resources')
+  return dispose
 }

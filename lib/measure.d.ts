@@ -13,6 +13,10 @@ export interface Measurement {
     ttftMs: number | null;
     ttftTextMs: number | null;
     e2eMs: number | null;
+    lastTextMs: number | null;
+    reasoningTokens: number | null;
+    hasToolCalls: boolean;
+    hasOutputUsage: boolean;
     outputTokens: number;
     inputTokens: number;
     cacheReadTokens: number;
